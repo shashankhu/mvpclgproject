@@ -1,0 +1,48 @@
+// ─────────────────────────────────────────────
+// GET /api/approvals/pending — Pending approvals for current user's role
+// ─────────────────────────────────────────────
+
+import prisma from "@/lib/prisma";
+import { authenticate } from "@/lib/auth";
+import { success, error, unauthorized, forbidden } from "@/lib/api";
+import { ROLES, EVENT_STATUS, APPROVER_ROLES } from "@/lib/constants";
+
+export async function GET(request) {
+  try {
+    const decoded = authenticate(request);
+    if (!decoded) return unauthorized();
+
+    if (!APPROVER_ROLES.includes(decoded.role)) {
+      return forbidden("Only approver roles can view pending approvals");
+    }
+
+    const statusMap = {
+      [ROLES.FACULTY_COORDINATOR]: EVENT_STATUS.WAITING_FOR_FACULTY,
+      [ROLES.DEAN]: EVENT_STATUS.WAITING_FOR_DEAN,
+      [ROLES.PRINCIPAL]: EVENT_STATUS.WAITING_FOR_PRINCIPAL,
+      [ROLES.ADMIN]: EVENT_STATUS.WAITING_FOR_ADMIN,
+    };
+
+    const targetStatus = statusMap[decoded.role];
+
+    const events = await prisma.event.findMany({
+      where: { status: targetStatus },
+      orderBy: { createdAt: "asc" },
+      include: {
+        createdBy: { select: { id: true, name: true, email: true, role: true } },
+        club: { select: { id: true, name: true } },
+        approvalLogs: {
+          orderBy: { createdAt: "asc" },
+          include: {
+            user: { select: { id: true, name: true, role: true } },
+          },
+        },
+      },
+    });
+
+    return success({ events, count: events.length });
+  } catch (err) {
+    console.error("[approvals:pending]", err);
+    return error("Internal server error", 500);
+  }
+}

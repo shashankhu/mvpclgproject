@@ -1,0 +1,273 @@
+// Diganta — College Event Management System
+// Prisma Schema — PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────
+// USERS & ROLES
+// ─────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         String   // student | club_head | faculty_coordinator | dean | principal | admin | transport | security | resource | finance
+  department   String?
+  phone        String?
+  avatarUrl    String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  clubMemberships ClubMember[]
+  createdEvents   Event[]         @relation("EventCreator")
+  approvalLogs    ApprovalLog[]
+  assignedTasks   Task[]          @relation("TaskAssignee")
+  createdTasks    Task[]          @relation("TaskCreator")
+  notifications   Notification[]
+  expenses        Expense[]
+
+  @@index([role])
+  @@index([email])
+  @@index([department])
+}
+
+// ─────────────────────────────────────────────
+// CLUBS & MEMBERSHIPS
+// ─────────────────────────────────────────────
+
+model Club {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  department  String?
+  logoUrl     String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  members        ClubMember[]
+  events         Event[]
+  eventJoins     EventParticipant[]
+
+  @@index([name])
+}
+
+model ClubMember {
+  id       String @id @default(cuid())
+  userId   String
+  clubId   String
+  role     String @default("member") // member | head | coordinator
+  joinedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clubId])
+  @@index([clubId])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────
+// EVENTS (Core Entity)
+// ─────────────────────────────────────────────
+
+model Event {
+  id             String   @id @default(cuid())
+  title          String
+  description    String
+  type           String   // tech | cultural | sports | workshop | seminar | standard
+  eventType      String   @default("club") // club | standard (dean-created)
+  status         String   @default("DRAFT")
+  // DRAFT → WAITING_FOR_FACULTY → WAITING_FOR_DEAN → WAITING_FOR_PRINCIPAL → WAITING_FOR_ADMIN → APPROVED → REJECTED → IN_PROGRESS → COMPLETED → ARCHIVED
+
+  // Proposal fields
+  objectives     String?
+  targetAudience String?
+  expectedAttendance Int?
+  venue          String?
+  eventDate      DateTime?
+  eventEndDate   DateTime?
+
+  // Budget
+  budgetEstimate Float    @default(0)
+
+  // Addons (execution layer metadata)
+  needsTransport Boolean  @default(false)
+  needsSecurity  Boolean  @default(false)
+  needsResources Boolean  @default(false)
+  transportNotes String?
+  securityNotes  String?
+  resourceNotes  String?
+
+  // Creator & ownership
+  createdById    String
+  clubId         String?   // null for dean-created standard events
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  createdBy      User             @relation("EventCreator", fields: [createdById], references: [id])
+  club           Club?            @relation(fields: [clubId], references: [id])
+  approvalLogs   ApprovalLog[]
+  budget         Budget?
+  expenses       Expense[]
+  tasks          Task[]
+  participants   EventParticipant[]
+  notifications  Notification[]
+  deptNotifications DeptNotification[]
+
+  @@index([status])
+  @@index([eventType])
+  @@index([clubId])
+  @@index([createdById])
+  @@index([eventDate])
+}
+
+// ─────────────────────────────────────────────
+// EVENT PARTICIPANTS (Clubs joining Standard Events)
+// ─────────────────────────────────────────────
+
+model EventParticipant {
+  id       String   @id @default(cuid())
+  eventId  String
+  clubId   String
+  status   String   @default("joined") // joined | left
+  joinedAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  club  Club  @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, clubId])
+  @@index([eventId])
+}
+
+// ─────────────────────────────────────────────
+// APPROVAL ENGINE (Immutable Event-Sourcing Logs)
+// ─────────────────────────────────────────────
+
+model ApprovalLog {
+  id        String   @id @default(cuid())
+  eventId   String
+  userId    String
+  role      String   // role at time of action (frozen — survives user role changes)
+  action    String   // approved | rejected | revision_requested
+  comment   String?
+  stage     String   // faculty_coordinator | dean | principal | admin
+  createdAt DateTime @default(now())
+
+  event   Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user    User  @relation(fields: [userId], references: [id])
+
+  @@index([eventId])
+  @@index([userId])
+  @@index([stage])
+}
+
+// ─────────────────────────────────────────────
+// DEPARTMENT NOTIFICATIONS (Dean's intent on approval)
+// ─────────────────────────────────────────────
+
+model DeptNotification {
+  id            String   @id @default(cuid())
+  eventId       String
+  departmentRole String  // transport | security | resource | finance
+  message       String?
+  isAcknowledged Boolean @default(false)
+  createdAt     DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([departmentRole])
+}
+
+// ─────────────────────────────────────────────
+// BUDGET & EXPENSES
+// ─────────────────────────────────────────────
+
+model Budget {
+  id             String   @id @default(cuid())
+  eventId        String   @unique
+  totalAllocated Float
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  eventId     String
+  amount      Float
+  description String
+  category    String   // venue | catering | equipment | printing | transport | security | other
+  proofUrl    String?  // bill upload path
+  addedById   String
+  createdAt   DateTime @default(now())
+
+  event   Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  addedBy User  @relation(fields: [addedById], references: [id])
+
+  @@index([eventId])
+  @@index([category])
+}
+
+// ─────────────────────────────────────────────
+// TASK MANAGEMENT (Execution Tracker)
+// ─────────────────────────────────────────────
+
+model Task {
+  id          String    @id @default(cuid())
+  eventId     String
+  title       String
+  description String?
+  status      String    @default("pending") // pending | in_progress | completed | delayed
+  priority    String    @default("medium")  // low | medium | high | urgent
+  deadline    DateTime?
+  assigneeId  String?
+  createdById String
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  event     Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  assignee  User? @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  createdBy User  @relation("TaskCreator", fields: [createdById], references: [id])
+
+  @@index([eventId])
+  @@index([assigneeId])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  eventId   String?
+  type      String   // approval_required | event_approved | event_rejected | task_assigned | dept_alert | general
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event Event? @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([userId])
+  @@index([eventId])
+}
