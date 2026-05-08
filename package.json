@@ -1,6 +1,7 @@
 {
   "name": "mvptrail",
   "version": "0.1.0",
+  "type": "module",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -20,7 +21,7 @@
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.5.0",
-    "@prisma/client": "^7.5.0",
+    "@prisma/client": "^7.8.0",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.105.4",
     "bcryptjs": "^3.0.3",
@@ -28,7 +29,6 @@
     "lucide-react": "^1.4.0",
     "next": "16.2.1",
     "pg": "^8.20.0",
-    "prisma": "^7.5.0",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
@@ -36,6 +36,7 @@
     "dotenv": "^17.3.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.1",
+    "prisma": "^7.8.0",
     "vitest": "^4.1.2"
   }
 }

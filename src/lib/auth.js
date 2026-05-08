@@ -7,19 +7,13 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 
 const JWT_SECRET = process.env.JWT_SECRET;
-const FALLBACK_SECRET = "diganta_development_jwt_secret_key_super_long_and_secure";
-
-/**
- * Validates the JWT_SECRET in production.
- * Throws only when called at runtime to avoid blocking the build process.
- */
-function validateSecret() {
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
   if (process.env.NODE_ENV === "production") {
-    if (!JWT_SECRET || JWT_SECRET.length < 32) {
-      throw new Error("FATAL: JWT_SECRET must be set and at least 32 characters in production. Check your Vercel Environment Variables.");
-    }
+    throw new Error("FATAL: JWT_SECRET must be set and at least 32 characters in production");
   }
 }
+// Temporary fallback for local dev ONLY
+const SECRET_KEY = JWT_SECRET || "diganta_development_jwt_secret_key_super_long_and_secure";
 
 // Token expiry
 const TOKEN_EXPIRY = "24h";
@@ -28,7 +22,6 @@ const SALT_ROUNDS = 12;
 // ─── Token Management ───
 
 export function generateToken(user) {
-  validateSecret();
   return jwt.sign(
     {
       userId: user.id,
@@ -36,20 +29,18 @@ export function generateToken(user) {
       role: user.role,
       name: user.name,
     },
-    JWT_SECRET || FALLBACK_SECRET,
+    JWT_SECRET || SECRET_KEY,
     { expiresIn: TOKEN_EXPIRY }
   );
 }
 
 export function verifyToken(token) {
-  validateSecret();
   try {
-    return jwt.verify(token, JWT_SECRET || FALLBACK_SECRET);
+    return jwt.verify(token, JWT_SECRET || SECRET_KEY);
   } catch {
     return null;
   }
 }
-
 
 // ─── Password Management ───
 
@@ -83,7 +74,7 @@ export async function authenticateStrict(request) {
 
   try {
     const prisma = (await import("@/lib/prisma")).default;
-    
+
     const dbUser = await prisma.user.findUnique({
       where: { id: decoded.userId },
       select: { id: true, role: true, isActive: true },
