@@ -6,8 +6,17 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 
-const JWT_SECRET = process.env.JWT_SECRET || "diganta_fallback_secret";
-const TOKEN_EXPIRY = "7d";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("FATAL: JWT_SECRET must be set and at least 32 characters in production");
+  }
+}
+// Temporary fallback for local dev ONLY
+const SECRET_KEY = JWT_SECRET || "diganta_development_jwt_secret_key_super_long_and_secure";
+
+// Token expiry
+const TOKEN_EXPIRY = "24h";
 const SALT_ROUNDS = 12;
 
 // ─── Token Management ───
@@ -20,14 +29,14 @@ export function generateToken(user) {
       role: user.role,
       name: user.name,
     },
-    JWT_SECRET,
+    JWT_SECRET || SECRET_KEY,
     { expiresIn: TOKEN_EXPIRY }
   );
 }
 
 export function verifyToken(token) {
   try {
-    return jwt.verify(token, JWT_SECRET);
+    return jwt.verify(token, JWT_SECRET || SECRET_KEY);
   } catch {
     return null;
   }
@@ -52,4 +61,35 @@ export function authenticate(request) {
   }
   const token = authHeader.slice(7);
   return verifyToken(token);
+}
+
+/**
+ * Strict Authentication — validates the token AND checks the DB
+ * Ensures the user is still active and their role hasn't changed.
+ * MUST be used for all mutation endpoints (POST/PUT/PATCH/DELETE).
+ */
+export async function authenticateStrict(request) {
+  const decoded = authenticate(request);
+  if (!decoded) return null;
+
+  try {
+    const prisma = (await import("@/lib/prisma")).default;
+    
+    const dbUser = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: { id: true, role: true, isActive: true },
+    });
+
+    if (!dbUser || !dbUser.isActive) {
+      return null;
+    }
+
+    return {
+      ...decoded,
+      role: dbUser.role,
+    };
+  } catch (err) {
+    console.error("[authenticateStrict]", err);
+    return null;
+  }
 }

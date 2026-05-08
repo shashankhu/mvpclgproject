@@ -6,6 +6,7 @@
 import prisma from "@/lib/prisma";
 import { comparePassword, generateToken } from "@/lib/auth";
 import { success, error, validateRequired } from "@/lib/api";
+import { checkRateLimit } from "@/lib/rate-limiter";
 
 export async function POST(request) {
   try {
@@ -13,6 +14,12 @@ export async function POST(request) {
 
     const missing = validateRequired(body, ["email", "password"]);
     if (missing) return error(missing);
+
+    // --- Rate Limiting (10 attempts per 15 minutes per email) ---
+    const rl = checkRateLimit(`login_${body.email.toLowerCase()}`, 10, 15 * 60 * 1000);
+    if (!rl.allowed) {
+      return error("Too many login attempts. Please try again later.", 429);
+    }
 
     // Find user
     const user = await prisma.user.findUnique({

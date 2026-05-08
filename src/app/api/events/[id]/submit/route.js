@@ -6,7 +6,7 @@
 import prisma from "@/lib/prisma";
 import { authenticate } from "@/lib/auth";
 import { success, error, unauthorized, forbidden, notFound, conflict } from "@/lib/api";
-import { EVENT_STATUS, ROLES } from "@/lib/constants";
+import { EVENT_STATUS } from "@/lib/constants";
 
 export async function POST(request, { params }) {
   try {
@@ -18,7 +18,13 @@ export async function POST(request, { params }) {
     const event = await prisma.event.findUnique({
       where: { id },
       include: {
-        club: true,
+        club: {
+          select: {
+            id: true,
+            facultyCoordinatorId: true,
+            facultyCoordinator: { select: { id: true, name: true } },
+          },
+        },
       },
     });
 
@@ -39,16 +45,31 @@ export async function POST(request, { params }) {
       return error("Event must have a title and description before submission");
     }
 
-    // Update status and notify faculty coordinators
+    // For club events, validate that the club has an assigned faculty coordinator
+    if (event.club && !event.club.facultyCoordinatorId) {
+      return error("The club does not have an assigned faculty coordinator. Please contact admin.");
+    }
+
+    // Update status and notify the assigned faculty coordinator
     const [updatedEvent] = await prisma.$transaction([
       prisma.event.update({
         where: { id },
         data: { status: EVENT_STATUS.WAITING_FOR_FACULTY },
       }),
-      // Notify all faculty coordinators
-      prisma.notification.createMany({
-        data: await getFacultyNotifications(id, event.title),
-      }),
+      // Notify only the assigned faculty coordinator for this club
+      ...(event.club?.facultyCoordinatorId
+        ? [
+            prisma.notification.create({
+              data: {
+                userId: event.club.facultyCoordinatorId,
+                eventId: id,
+                type: "approval_required",
+                title: "New Event for Review",
+                message: `Event "${event.title}" has been submitted and awaits your review.`,
+              },
+            }),
+          ]
+        : []),
     ]);
 
     return success({
@@ -59,19 +80,4 @@ export async function POST(request, { params }) {
     console.error("[events:submit]", err);
     return error("Internal server error", 500);
   }
-}
-
-async function getFacultyNotifications(eventId, eventTitle) {
-  const faculty = await prisma.user.findMany({
-    where: { role: ROLES.FACULTY_COORDINATOR, isActive: true },
-    select: { id: true },
-  });
-
-  return faculty.map((f) => ({
-    userId: f.id,
-    eventId,
-    type: "approval_required",
-    title: "New Event for Review",
-    message: `Event "${eventTitle}" has been submitted and awaits your review.`,
-  }));
 }

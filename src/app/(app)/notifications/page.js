@@ -80,12 +80,12 @@ export default function NotificationsPage() {
               }}
               style={{
                 padding: "var(--space-4)",
-                background: n.isRead ? "var(--bg-surface)" : "var(--bg-elevated)",
-                border: `1px solid ${n.isRead ? "var(--border-subtle)" : "var(--accent-primary)"}`,
+                background: n.isRead ? "var(--bg-surface)" : "var(--accent-primary-light)",
+                borderLeft: `3px solid ${n.isRead ? "transparent" : "var(--accent-primary)"}`,
                 borderRadius: "var(--radius-md)",
                 cursor: "pointer",
                 transition: "all var(--transition-fast)",
-                opacity: n.isRead ? 0.7 : 1,
+                boxShadow: n.isRead ? "none" : "var(--shadow-sm)",
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>

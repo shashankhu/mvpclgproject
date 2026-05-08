@@ -119,6 +119,21 @@ export async function PATCH(request, { params }) {
     });
     if (!task) return notFound("Task not found");
 
+    // Verify task belongs to the event in the URL
+    if (task.eventId !== params.id) {
+      return error("Task does not belong to this event", 400);
+    }
+
+    // Check permissions: creator, assignee, admin, dean, or super admin
+    const canEdit =
+      task.createdById === decoded.userId ||
+      task.assigneeId === decoded.userId ||
+      [ROLES.ADMIN, ROLES.DEAN, ROLES.SUPER_ADMIN].includes(decoded.role);
+
+    if (!canEdit) {
+      return forbidden("You don't have permission to edit this task");
+    }
+
     const updateData = {};
     if (body.status) {
       const statusErr = validateEnum(body.status, Object.values(TASK_STATUS), "status");

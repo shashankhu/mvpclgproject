@@ -10,6 +10,7 @@ import {
   APPROVAL_ACTION,
   APPROVAL_CHAIN,
   getRequiredStages,
+  getSubEventRequiredStages,
   DEPARTMENT_ROLES,
 } from "@/lib/constants";
 
@@ -20,12 +21,16 @@ import {
  * This is the source-of-truth derivation — the cached `status` field
  * on the Event is just a performance mirror.
  *
- * @param {object} event - Event with budgetEstimate
+ * @param {object} event - Event with budgetEstimate and parentEventId
  * @param {Array} approvalLogs - Ordered by createdAt
  * @returns {string} The derived EVENT_STATUS
  */
 export function deriveEventStatus(event, approvalLogs) {
-  const requiredStages = getRequiredStages(event);
+  // Sub-events (with parentEventId) skip faculty coordinator stage
+  const isSubEvent = !!event.parentEventId;
+  const requiredStages = isSubEvent
+    ? getSubEventRequiredStages(event)
+    : getRequiredStages(event);
 
   // Check each required stage in order
   for (const stage of requiredStages) {
@@ -76,78 +81,103 @@ export async function validateAndAddApproval(
   comment = null,
   deptNotifications = []
 ) {
-  // Fetch event with all logs
-  const event = await prisma.event.findUnique({
-    where: { id: eventId },
-    include: {
-      approvalLogs: {
-        orderBy: { createdAt: "asc" },
-        include: { user: { select: { name: true, role: true } } },
-      },
-    },
-  });
-
-  if (!event) {
-    return { success: false, error: "Event not found", status: 404 };
-  }
-
-  // Check event is in a reviewable state
-  if (
-    event.status === EVENT_STATUS.APPROVED ||
-    event.status === EVENT_STATUS.REJECTED
-  ) {
-    return {
-      success: false,
-      error: "Event has already been finalized",
-      status: 409,
-    };
-  }
-
-  if (event.status === EVENT_STATUS.DRAFT) {
-    return {
-      success: false,
-      error: "Event has not been submitted for approval",
-      status: 400,
-    };
-  }
-
-  // Determine which stage we're at
-  const requiredStages = getRequiredStages(event);
-  const currentStage = getCurrentStage(event, event.approvalLogs, requiredStages);
-
-  if (!currentStage) {
-    return {
-      success: false,
-      error: "No pending approval stage found",
-      status: 409,
-    };
-  }
-
-  // Validate: user's role must match the current stage
-  const stageConfig = APPROVAL_CHAIN.find((s) => s.stage === currentStage);
-  if (!stageConfig || user.role !== stageConfig.role) {
-    return {
-      success: false,
-      error: `This event is waiting for ${currentStage.replace("_", " ")} approval. Your role (${user.role}) cannot act at this stage.`,
-      status: 403,
-    };
-  }
-
-  // Check for duplicate: same user already acted at this stage
-  const existingLog = event.approvalLogs.find(
-    (log) => log.stage === currentStage && log.userId === user.userId
-  );
-  if (existingLog) {
-    return {
-      success: false,
-      error: "You have already reviewed this event at this stage",
-      status: 409,
-    };
-  }
-
-  // ─── Execute within transaction ───
+  // ─── Execute entire validation within transaction to prevent race conditions ───
   const result = await prisma.$transaction(async (tx) => {
-    // Create immutable approval log
+    // 1. Fetch event with all logs and club info (INSIDE TRANSACTION)
+    const event = await tx.event.findUnique({
+      where: { id: eventId },
+      include: {
+        approvalLogs: {
+          orderBy: { createdAt: "asc" },
+          include: { user: { select: { name: true, role: true } } },
+        },
+        club: {
+          select: {
+            id: true,
+            facultyCoordinatorId: true,
+            facultyCoordinator: { select: { id: true, name: true } }
+          },
+        },
+        parentEvent: {
+          select: { id: true, title: true },
+        },
+      },
+    });
+
+    if (!event) {
+      return { success: false, error: "Event not found", status: 404 };
+    }
+
+    // Check event is in a reviewable state
+    if (
+      event.status === EVENT_STATUS.APPROVED ||
+      event.status === EVENT_STATUS.REJECTED
+    ) {
+      return {
+        success: false,
+        error: "Event has already been finalized",
+        status: 409,
+      };
+    }
+
+    if (event.status === EVENT_STATUS.DRAFT) {
+      return {
+        success: false,
+        error: "Event has not been submitted for approval",
+        status: 400,
+      };
+    }
+
+    // Determine which stage we're at
+    // Sub-events (with parentEventId) skip faculty coordinator stage
+    const isSubEvent = !!event.parentEventId;
+    const requiredStages = isSubEvent
+      ? getSubEventRequiredStages(event)
+      : getRequiredStages(event);
+    const currentStage = getCurrentStage(event, event.approvalLogs, requiredStages);
+
+    if (!currentStage) {
+      return {
+        success: false,
+        error: "No pending approval stage found",
+        status: 409,
+      };
+    }
+
+    // Validate: user's role must match the current stage
+    const stageConfig = APPROVAL_CHAIN.find((s) => s.stage === currentStage);
+    if (!stageConfig || user.role !== stageConfig.role) {
+      return {
+        success: false,
+        error: `This event is waiting for ${currentStage.replace("_", " ")} approval. Your role (${user.role}) cannot act at this stage.`,
+        status: 403,
+      };
+    }
+
+    // For faculty_coordinator stage, validate that this FC is the assigned coordinator for the club
+    if (currentStage === "faculty_coordinator" && event.club) {
+      if (event.club.facultyCoordinatorId !== user.userId) {
+        return {
+          success: false,
+          error: "You are not the assigned faculty coordinator for this club. Only the assigned coordinator can approve this event.",
+          status: 403,
+        };
+      }
+    }
+
+    // Check for duplicate: same user already acted at this stage
+    const existingLog = event.approvalLogs.find(
+      (log) => log.stage === currentStage && log.userId === user.userId
+    );
+    if (existingLog) {
+      return {
+        success: false,
+        error: "You have already reviewed this event at this stage",
+        status: 409,
+      };
+    }
+
+    // 2. Create immutable approval log
     const log = await tx.approvalLog.create({
       data: {
         eventId,
@@ -215,10 +245,18 @@ export async function validateAndAddApproval(
       if (nextStage) {
         const nextStageConfig = APPROVAL_CHAIN.find((s) => s.stage === nextStage);
         if (nextStageConfig) {
-          const nextApprovers = await tx.user.findMany({
-            where: { role: nextStageConfig.role, isActive: true },
-            select: { id: true },
-          });
+          let nextApprovers = [];
+
+          // For faculty_coordinator stage, notify only the assigned FC for the club
+          if (nextStage === "faculty_coordinator" && event.club?.facultyCoordinatorId) {
+            nextApprovers = [{ id: event.club.facultyCoordinatorId }];
+          } else {
+            // For other stages, notify all users with that role
+            nextApprovers = await tx.user.findMany({
+              where: { role: nextStageConfig.role, isActive: true },
+              select: { id: true },
+            });
+          }
 
           if (nextApprovers.length > 0) {
             await tx.notification.createMany({
@@ -261,7 +299,12 @@ export async function validateAndAddApproval(
     }
 
     return { log, event: updatedEvent };
-  });
+  }); // end of transaction block
+
+  // If the transaction returned an error object directly (validation failed inside tx)
+  if (result.error) {
+    return result;
+  }
 
   return {
     success: true,

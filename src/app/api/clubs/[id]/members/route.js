@@ -38,11 +38,19 @@ export async function POST(request, { params }) {
     });
     if (existing) return conflict("User is already a member of this club");
 
+    // Validate the role they are trying to assign
+    const validRoles = ["member"];
+    if (allowed.includes(decoded.role) || decoded.role === ROLES.SUPER_ADMIN) {
+      validRoles.push("head"); // Only admins/faculty can assign the head role
+    }
+    
+    const assignedRole = validRoles.includes(body.role) ? body.role : "member";
+
     const member = await prisma.clubMember.create({
       data: {
         userId: body.userId,
         clubId: id,
-        role: body.role || "member",
+        role: assignedRole,
       },
       include: {
         user: { select: { id: true, name: true, email: true, role: true } },

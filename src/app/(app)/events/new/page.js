@@ -48,7 +48,8 @@ export default function CreateEventPage() {
     if (authLoading) return;
     if (!user) { router.push("/login"); return; }
 
-    apiFetch("/api/clubs").then((data) => setClubs(data.clubs || [])).catch(() => {});
+    // Fetch only clubs the user can create events for
+    apiFetch("/api/clubs/my").then((data) => setClubs(data.clubs || [])).catch(() => {});
   }, [user, apiFetch, authLoading, router]);
 
   const handleSubmit = async (e) => {

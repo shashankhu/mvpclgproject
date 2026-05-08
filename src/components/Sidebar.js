@@ -13,15 +13,32 @@ import {
   LogOut,
   Menu,
   X,
+  ShieldAlert,
+  FileText,
+  Receipt,
+  Building2,
 } from "lucide-react";
 
-const NAV_ITEMS = [
+// Main navigation items
+const MAIN_NAV = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Events", href: "/events", icon: Calendar },
-  { label: "Create Event", href: "/events/new", icon: CalendarPlus, roles: ["student", "club_head", "dean", "admin"] },
-  { label: "Approvals", href: "/approvals", icon: ClipboardCheck, roles: ["faculty_coordinator", "dean", "principal", "admin"] },
-  { label: "Clubs", href: "/clubs", icon: Users },
+  { label: "Events", href: "/events", icon: Calendar, roles: ["student", "club_head", "faculty_coordinator", "dean", "principal", "admin", "super_admin"] },
+  { label: "Create Event", href: "/events/new", icon: CalendarPlus, roles: ["student", "club_head", "dean", "admin", "super_admin"] },
+  { label: "Approvals", href: "/approvals", icon: ClipboardCheck, roles: ["faculty_coordinator", "dean", "principal", "admin", "super_admin"] },
+  { label: "Clubs", href: "/clubs", icon: Users, roles: ["student", "club_head", "faculty_coordinator", "dean", "principal", "admin", "super_admin"] },
   { label: "Notifications", href: "/notifications", icon: Bell },
+];
+
+// Vendor management section — grouped under a single section label
+const VENDOR_NAV = [
+  { label: "Quotation Requests", href: "/quotation-requests", icon: FileText, roles: ["vendor", "dean", "admin", "super_admin", "finance"] },
+  { label: "Vendor Bills", href: "/vendor-bills", icon: Receipt, roles: ["vendor", "finance", "dean", "admin", "super_admin"] },
+  { label: "Vendor Registry", href: "/vendors", icon: Building2, roles: ["dean", "admin", "super_admin", "finance"] },
+];
+
+// System items
+const SYSTEM_NAV = [
+  { label: "Admin Panel", href: "/admin", icon: ShieldAlert, roles: ["admin", "super_admin"] },
 ];
 
 export default function Sidebar() {
@@ -44,8 +61,28 @@ export default function Sidebar() {
     router.push("/login");
   };
 
-  const filteredNav = NAV_ITEMS.filter(
-    (item) => !item.roles || item.roles.includes(user?.role)
+  const filterByRole = (items) =>
+    items.filter((item) => !item.roles || item.roles.includes(user?.role));
+
+  const filteredMain = filterByRole(MAIN_NAV);
+  const filteredVendor = filterByRole(VENDOR_NAV);
+  const filteredSystem = filterByRole(SYSTEM_NAV);
+
+  const renderNavItem = (item) => (
+    <button
+      key={item.href}
+      className={`nav-link ${pathname === item.href || pathname.startsWith(item.href + "/") ? "active" : ""}`}
+      onClick={() => {
+        router.push(item.href);
+        setMobileOpen(false);
+      }}
+    >
+      <item.icon size={18} />
+      {item.label}
+      {item.label === "Notifications" && unreadCount > 0 && (
+        <span className="nav-badge">{unreadCount}</span>
+      )}
+    </button>
   );
 
   return (
@@ -54,19 +91,6 @@ export default function Sidebar() {
       <button
         className="mobile-menu-btn"
         onClick={() => setMobileOpen(!mobileOpen)}
-        style={{
-          position: "fixed",
-          top: 18,
-          left: 16,
-          zIndex: 200,
-          display: "none",
-          background: "var(--bg-surface)",
-          border: "1px solid var(--border-default)",
-          borderRadius: "var(--radius-md)",
-          padding: "8px",
-          color: "var(--text-primary)",
-          cursor: "pointer",
-        }}
       >
         {mobileOpen ? <X size={20} /> : <Menu size={20} />}
       </button>
@@ -74,43 +98,74 @@ export default function Sidebar() {
       <aside className={`sidebar ${mobileOpen ? "open" : ""}`}>
         <div className="sidebar-logo">
           <h1>DIGANTA</h1>
-          <span>College Event System</span>
+          <span>Execution OS for Students</span>
         </div>
 
         <nav className="sidebar-nav">
-          <div className="nav-section-label">Main</div>
-          {filteredNav.map((item) => (
-            <button
-              key={item.href}
-              className={`nav-link ${pathname === item.href || pathname.startsWith(item.href + "/") ? "active" : ""}`}
-              onClick={() => {
-                router.push(item.href);
-                setMobileOpen(false);
-              }}
-            >
-              <item.icon size={18} />
-              {item.label}
-              {item.label === "Notifications" && unreadCount > 0 && (
-                <span className="nav-badge">{unreadCount}</span>
-              )}
-            </button>
-          ))}
+          <div className="nav-section-label">Navigation</div>
+          {filteredMain.map(renderNavItem)}
+
+          {filteredVendor.length > 0 && (
+            <>
+              <div className="nav-section-label">Vendor Management</div>
+              {filteredVendor.map(renderNavItem)}
+            </>
+          )}
+
+          {filteredSystem.length > 0 && (
+            <>
+              <div className="nav-section-label">System</div>
+              {filteredSystem.map(renderNavItem)}
+            </>
+          )}
         </nav>
 
         {/* User info + Logout */}
-        <div style={{ padding: "0 var(--space-3)", borderTop: "1px solid var(--border-subtle)", paddingTop: "var(--space-4)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", padding: "var(--space-3)", marginBottom: "var(--space-2)" }}>
+        <div style={{
+          padding: "0 var(--space-4)",
+          borderTop: "1px solid var(--border-default)",
+          paddingTop: "var(--space-5)",
+          marginTop: "auto"
+        }}>
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--space-3)",
+            padding: "var(--space-3)",
+            marginBottom: "var(--space-3)",
+            background: "var(--bg-muted)",
+            borderRadius: "var(--radius-md)"
+          }}>
             <div className="header-avatar">
               {user?.name?.charAt(0)?.toUpperCase()}
             </div>
-            <div>
-              <div className="header-username">{user?.name}</div>
-              <div className="header-role">{user?.role?.replace("_", " ")}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{
+                fontSize: "var(--text-sm)",
+                fontWeight: 500,
+                color: "var(--text-primary)",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis"
+              }}>
+                {user?.name}
+              </div>
+              <div style={{
+                fontSize: "var(--text-xs)",
+                color: "var(--text-muted)",
+                textTransform: "capitalize"
+              }}>
+                {user?.role?.replace("_", " ")}
+              </div>
             </div>
           </div>
-          <button className="nav-link" onClick={handleLogout} style={{ color: "var(--accent-danger)" }}>
+          <button
+            className="nav-link"
+            onClick={handleLogout}
+            style={{ color: "var(--accent-danger)" }}
+          >
             <LogOut size={18} />
-            Logout
+            Sign Out
           </button>
         </div>
       </aside>
@@ -121,7 +176,8 @@ export default function Sidebar() {
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(0,0,0,0.5)",
+            background: "rgba(15, 23, 42, 0.4)",
+            backdropFilter: "blur(4px)",
             zIndex: 99,
           }}
           onClick={() => setMobileOpen(false)}

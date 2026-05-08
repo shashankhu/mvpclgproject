@@ -3,14 +3,14 @@
 // Core approval engine endpoint
 // ─────────────────────────────────────────────
 
-import { authenticate } from "@/lib/auth";
+import { authenticateStrict } from "@/lib/auth";
 import { success, error, unauthorized, validateRequired } from "@/lib/api";
 import { validateAndAddApproval } from "@/lib/approval";
 import { APPROVAL_ACTION } from "@/lib/constants";
 
 export async function POST(request, { params }) {
   try {
-    const decoded = authenticate(request);
+    const decoded = await authenticateStrict(request);
     if (!decoded) return unauthorized();
 
     const { id } = await params;

@@ -64,6 +64,23 @@ export async function POST(request, { params }) {
     });
     if (!event) return notFound("Event not found");
 
+    // Check authorization
+    const canAddExpense =
+      event.createdById === decoded.userId ||
+      ["admin", "super_admin", "finance", "dean"].includes(decoded.role);
+
+    if (!canAddExpense) {
+      // Allow club members to add expenses
+      if (event.clubId) {
+        const mem = await prisma.clubMember.findUnique({
+          where: { userId_clubId: { userId: decoded.userId, clubId: event.clubId } }
+        });
+        if (!mem) return forbidden("You do not have permission to add expenses to this event");
+      } else {
+        return forbidden("You do not have permission to add expenses to this event");
+      }
+    }
+
     // Check budget not exceeded
     if (event.budget) {
       const currentTotal = await prisma.expense.aggregate({

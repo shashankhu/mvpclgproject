@@ -78,9 +78,15 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="auth-footer">
-          Don&apos;t have an account?{" "}
-          <a href="/signup">Sign up</a>
+        <div className="auth-footer" style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+          <div>
+            Don&apos;t have an account?{" "}
+            <a href="/signup">Sign up</a>
+          </div>
+          <div>
+            Are you a service provider?{" "}
+            <a href="/vendor-register">Register as Vendor</a>
+          </div>
         </div>
       </div>
     </div>

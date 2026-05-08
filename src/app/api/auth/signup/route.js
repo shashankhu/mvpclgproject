@@ -7,9 +7,19 @@ import prisma from "@/lib/prisma";
 import { hashPassword, generateToken } from "@/lib/auth";
 import { success, error, validateRequired, validateEmail, validateEnum } from "@/lib/api";
 import { ALL_ROLES } from "@/lib/constants";
+import { checkRateLimit } from "@/lib/rate-limiter";
 
 export async function POST(request) {
   try {
+    // Use IP for signup rate limiting (fallback to generic if IP unavailable)
+    const ip = request.headers.get("x-forwarded-for") || "unknown_ip";
+
+    // --- Rate Limiting (5 signups per hour per IP) ---
+    const rl = checkRateLimit(`signup_${ip}`, 5, 60 * 60 * 1000);
+    if (!rl.allowed) {
+      return error("Too many accounts created from this IP. Please try again later.", 429);
+    }
+
     const body = await request.json();
 
     // Validate required fields
@@ -21,9 +31,12 @@ export async function POST(request) {
       return error("Invalid email format");
     }
 
-    // Validate role
-    const roleError = validateEnum(body.role, ALL_ROLES, "role");
-    if (roleError) return error(roleError);
+    // Validate role: self-registration is strictly for students
+    // Admin users create authoritative roles via /api/admin/users
+    const ALLOWED_SIGNUP_ROLES = ["student"];
+    if (!ALLOWED_SIGNUP_ROLES.includes(body.role)) {
+      return error("Self-registration is only available for students. Contact admin for other roles.", 403);
+    }
 
     // Validate password strength
     if (body.password.length < 6) {

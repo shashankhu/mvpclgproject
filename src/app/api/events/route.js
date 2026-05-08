@@ -30,7 +30,7 @@ export async function GET(request) {
     const skip = (page - 1) * limit;
 
     // Build where filter
-    const where = {};
+    const where = { parentEventId: null }; // Only show top-level events, not sub-events
     if (status) where.status = status;
     if (type) where.type = type;
     if (eventType) where.eventType = eventType;
@@ -98,6 +98,9 @@ export async function POST(request) {
 
     const missing = validateRequired(body, ["title", "description", "type"]);
     if (missing) return error(missing);
+
+    if (body.title?.length > 200) return error("Title must be under 200 characters");
+    if (body.description?.length > 5000) return error("Description too long");
 
     // ─── Standard Event (Dean creates) ───
     if (body.eventType === "standard") {

@@ -18,7 +18,7 @@ model User {
   name         String
   email        String   @unique
   passwordHash String
-  role         String   // student | club_head | faculty_coordinator | dean | principal | admin | transport | security | resource | finance
+  role         String   // student | club_head | faculty_coordinator | dean | principal | admin | transport | security | resource | finance | vendor
   department   String?
   phone        String?
   avatarUrl    String?
@@ -34,6 +34,15 @@ model User {
   createdTasks    Task[]          @relation("TaskCreator")
   notifications   Notification[]
   expenses        Expense[]
+  coordinatedClubs Club[]         @relation("ClubFacultyCoordinator")
+  createdResourceRequests ResourceRequest[] @relation("ResourceRequestCreator")
+  reviewedResourceRequests ResourceRequest[] @relation("ResourceRequestReviewer")
+  vendorProfile        Vendor?           @relation("VendorProfile")
+  verifiedVendors      Vendor[]          @relation("VendorVerifier")
+  quotationRequests    QuotationRequest[] @relation("QuotationRequester")
+  uploadedAttachments  Attachment[]      @relation("AttachmentUploader")
+  processedBills       VendorBill[]      @relation("BillProcessor")
+  auditLogs            AuditLog[]        @relation("AuditUser")
 
   @@index([role])
   @@index([email])
@@ -50,16 +59,24 @@ model Club {
   description String?
   department  String?
   logoUrl     String?
+  type        String   @default("departmental") // departmental | non_departmental
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  // Assigned Faculty Coordinator (required for approval routing)
+  facultyCoordinatorId String?
+  facultyCoordinator   User?   @relation("ClubFacultyCoordinator", fields: [facultyCoordinatorId], references: [id])
 
   // Relations
   members        ClubMember[]
   events         Event[]
   eventJoins     EventParticipant[]
+  resourceRequests ResourceRequest[]
 
   @@index([name])
+  @@index([type])
+  @@index([facultyCoordinatorId])
 }
 
 model ClubMember {
@@ -99,7 +116,7 @@ model Event {
   eventEndDate   DateTime?
 
   // Budget
-  budgetEstimate Float    @default(0)
+  budgetEstimate Decimal    @default(0) @db.Decimal(12, 2)
 
   // Addons (execution layer metadata)
   needsTransport Boolean  @default(false)
@@ -113,12 +130,17 @@ model Event {
   createdById    String
   clubId         String?   // null for dean-created standard events
 
+  // Parent-child hierarchy for sub-events within standard events
+  parentEventId  String?   // null for top-level events, references parent standard event for sub-events
+
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   // Relations
   createdBy      User             @relation("EventCreator", fields: [createdById], references: [id])
   club           Club?            @relation(fields: [clubId], references: [id])
+  parentEvent    Event?           @relation("ParentSubEvents", fields: [parentEventId], references: [id])
+  subEvents      Event[]          @relation("ParentSubEvents")
   approvalLogs   ApprovalLog[]
   budget         Budget?
   expenses       Expense[]
@@ -126,12 +148,19 @@ model Event {
   participants   EventParticipant[]
   notifications  Notification[]
   deptNotifications DeptNotification[]
+  resourceRequests ResourceRequest[]
+  quotationRequests QuotationRequest[]
+  attachments      Attachment[]
+  vendorBills      VendorBill[]
 
   @@index([status])
   @@index([eventType])
   @@index([clubId])
   @@index([createdById])
+  @@index([createdById, status])
   @@index([eventDate])
+  @@index([parentEventId])
+  @@index([eventType, parentEventId])
 }
 
 // ─────────────────────────────────────────────
@@ -150,6 +179,45 @@ model EventParticipant {
 
   @@unique([eventId, clubId])
   @@index([eventId])
+}
+
+// ─────────────────────────────────────────────
+// RESOURCE REQUESTS (Clubs request resources within Standard Events)
+// ─────────────────────────────────────────────
+
+model ResourceRequest {
+  id          String   @id @default(cuid())
+  eventId     String
+  clubId      String
+  requestedById String
+
+  // Request details
+  title       String
+  description String?
+  category    String   // venue | equipment | transport | catering | printing | security | funding | other
+  amount      Decimal? @db.Decimal(12, 2) // If requesting funding
+  quantity    Int?     // If requesting items
+  priority    String   @default("medium") // low | medium | high | urgent
+
+  // Status workflow
+  status      String   @default("pending") // pending | approved | rejected | fulfilled | quotation_requested
+  reviewedById String?
+  reviewComment String?
+  reviewedAt  DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  event       Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  club        Club  @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  requestedBy User  @relation("ResourceRequestCreator", fields: [requestedById], references: [id])
+  reviewedBy  User? @relation("ResourceRequestReviewer", fields: [reviewedById], references: [id])
+  quotationRequests QuotationRequest[]
+  attachments      Attachment[]
+
+  @@index([eventId])
+  @@index([clubId])
+  @@index([status])
 }
 
 // ─────────────────────────────────────────────
@@ -199,7 +267,7 @@ model DeptNotification {
 model Budget {
   id             String   @id @default(cuid())
   eventId        String   @unique
-  totalAllocated Float
+  totalAllocated Decimal  @db.Decimal(12, 2)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -209,7 +277,7 @@ model Budget {
 model Expense {
   id          String   @id @default(cuid())
   eventId     String
-  amount      Float
+  amount      Decimal  @db.Decimal(12, 2)
   description String
   category    String   // venue | catering | equipment | printing | transport | security | other
   proofUrl    String?  // bill upload path
@@ -268,6 +336,227 @@ model Notification {
   event Event? @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@index([userId, isRead])
+  @@index([userId, isRead, createdAt])
   @@index([userId])
   @@index([eventId])
+}
+
+// ─────────────────────────────────────────────
+// VENDORS (External Service Providers)
+// ─────────────────────────────────────────────
+
+model Vendor {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  companyName    String
+  contactPerson  String
+  phone          String
+  email          String
+  address        String?
+  gstNumber      String?
+  panNumber      String?
+  categories     String[]
+  description    String?
+  isVerified     Boolean  @default(false)
+  verifiedById   String?
+  verifiedAt     DateTime?
+  rating         Decimal? @db.Decimal(3, 2)
+  totalOrders    Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user           User     @relation("VendorProfile", fields: [userId], references: [id])
+  verifiedBy     User?    @relation("VendorVerifier", fields: [verifiedById], references: [id])
+  quotations     Quotation[]
+  documents      VendorDocument[]
+  awardedQuotationRequests QuotationRequest[] @relation("AwardedQuotations")
+  vendorBills    VendorBill[]
+
+  @@index([isVerified])
+}
+
+// ─────────────────────────────────────────────
+// QUOTATION REQUESTS (Dean requests quotes from vendors)
+// ─────────────────────────────────────────────
+
+model QuotationRequest {
+  id                String   @id @default(cuid())
+  resourceRequestId String
+  eventId           String
+  title             String
+  description       String?
+  requirements      String?
+  category          String
+  budgetLimit       Decimal? @db.Decimal(12, 2)
+  deadline          DateTime?
+  status            String   @default("open") // open | closed | awarded
+
+  requestedById     String
+  awardedToId       String?
+  awardedAt         DateTime?
+  awardComment      String?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  resourceRequest   ResourceRequest @relation(fields: [resourceRequestId], references: [id])
+  event             Event           @relation(fields: [eventId], references: [id])
+  requestedBy       User            @relation("QuotationRequester", fields: [requestedById], references: [id])
+  awardedTo         Vendor?         @relation("AwardedQuotations", fields: [awardedToId], references: [id])
+  quotations        Quotation[]
+  attachments       Attachment[]
+  vendorBill        VendorBill?
+
+  @@index([eventId])
+  @@index([status])
+  @@index([category])
+  @@index([resourceRequestId])
+}
+
+// ─────────────────────────────────────────────
+// QUOTATIONS (Vendor submissions — versioned)
+// ─────────────────────────────────────────────
+
+model Quotation {
+  id                  String   @id @default(cuid())
+  quotationRequestId  String
+  vendorId            String
+  version             Int      @default(1)
+  amount              Decimal  @db.Decimal(12, 2)
+  description         String?
+  deliveryTimeline    String?
+  termsAndConditions  String?
+  validUntil          DateTime?
+  status              String   @default("submitted") // submitted | superseded | accepted | rejected | withdrawn
+  isLatest            Boolean  @default(true)
+  submittedAt         DateTime @default(now())
+
+  reviewComment       String?
+  reviewedAt          DateTime?
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  quotationRequest    QuotationRequest @relation(fields: [quotationRequestId], references: [id])
+  vendor              Vendor           @relation(fields: [vendorId], references: [id])
+  attachments         Attachment[]
+  vendorBill          VendorBill?
+
+  @@unique([quotationRequestId, vendorId, version])
+  @@index([quotationRequestId])
+  @@index([vendorId])
+  @@index([status])
+  @@index([isLatest])
+}
+
+// ─────────────────────────────────────────────
+// VENDOR BILLS (Auto-created on vendor award)
+// ─────────────────────────────────────────────
+
+model VendorBill {
+  id                  String   @id @default(cuid())
+  quotationRequestId  String   @unique
+  quotationId         String   @unique
+  vendorId            String
+  eventId             String
+
+  billNumber          String?
+  billAmount          Decimal  @db.Decimal(12, 2)
+  taxAmount           Decimal? @db.Decimal(12, 2)
+  totalAmount         Decimal  @db.Decimal(12, 2)
+  paymentStatus       String   @default("pending") // pending | processing | paid | rejected
+  paymentDate         DateTime?
+  paymentReference    String?
+  paymentComment      String?
+  processedById       String?
+  processedAt         DateTime?
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  quotationRequest    QuotationRequest @relation(fields: [quotationRequestId], references: [id])
+  quotation           Quotation        @relation(fields: [quotationId], references: [id])
+  vendor              Vendor           @relation(fields: [vendorId], references: [id])
+  event               Event            @relation(fields: [eventId], references: [id])
+  processedBy         User?            @relation("BillProcessor", fields: [processedById], references: [id])
+  attachments         Attachment[]
+
+  @@index([vendorId])
+  @@index([eventId])
+  @@index([paymentStatus])
+}
+
+// ─────────────────────────────────────────────
+// ATTACHMENTS (Universal file attachment system)
+// ─────────────────────────────────────────────
+
+model Attachment {
+  id           String   @id @default(cuid())
+  fileName     String
+  fileUrl      String
+  fileSize     Int
+  mimeType     String
+  uploadedById String
+
+  // Polymorphic references (only one should be set)
+  eventId              String?
+  quotationRequestId   String?
+  quotationId          String?
+  resourceRequestId    String?
+  vendorBillId         String?
+
+  createdAt   DateTime @default(now())
+
+  uploadedBy          User              @relation("AttachmentUploader", fields: [uploadedById], references: [id])
+  event               Event?            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  quotationRequest    QuotationRequest? @relation(fields: [quotationRequestId], references: [id], onDelete: Cascade)
+  quotation           Quotation?        @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  resourceRequest     ResourceRequest?  @relation(fields: [resourceRequestId], references: [id], onDelete: Cascade)
+  vendorBill          VendorBill?       @relation(fields: [vendorBillId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([quotationRequestId])
+  @@index([quotationId])
+  @@index([resourceRequestId])
+  @@index([vendorBillId])
+}
+
+// ─────────────────────────────────────────────
+// VENDOR DOCUMENTS (Registration documents)
+// ─────────────────────────────────────────────
+
+model VendorDocument {
+  id         String   @id @default(cuid())
+  vendorId   String
+  docType    String   // gst_certificate | pan_card | registration | portfolio | other
+  fileName   String
+  fileUrl    String
+  fileSize   Int
+  mimeType   String
+  createdAt  DateTime @default(now())
+
+  vendor     Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
+}
+
+// ─────────────────────────────────────────────
+// AUDIT LOG (Immutable action trail)
+// ─────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String   // vendor_registered | vendor_verified | quotation_submitted | vendor_awarded | etc.
+  entityType String   // vendor | quotation_request | quotation | vendor_bill
+  entityId   String
+  userId     String
+  metadata   String?  // JSON string
+  createdAt  DateTime @default(now())
+
+  user       User     @relation("AuditUser", fields: [userId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
 }

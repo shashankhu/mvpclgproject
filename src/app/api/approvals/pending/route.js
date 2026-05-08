@@ -25,12 +25,33 @@ export async function GET(request) {
 
     const targetStatus = statusMap[decoded.role];
 
+    // Build where clause - for faculty coordinators, only show events from their assigned clubs
+    let whereClause = { status: targetStatus };
+
+    if (decoded.role === ROLES.FACULTY_COORDINATOR) {
+      whereClause = {
+        status: targetStatus,
+        club: {
+          facultyCoordinatorId: decoded.userId,
+        },
+      };
+    }
+
     const events = await prisma.event.findMany({
-      where: { status: targetStatus },
+      where: whereClause,
       orderBy: { createdAt: "asc" },
       include: {
         createdBy: { select: { id: true, name: true, email: true, role: true } },
-        club: { select: { id: true, name: true } },
+        club: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            department: true,
+            facultyCoordinatorId: true,
+            facultyCoordinator: { select: { id: true, name: true } },
+          },
+        },
         approvalLogs: {
           orderBy: { createdAt: "asc" },
           include: {

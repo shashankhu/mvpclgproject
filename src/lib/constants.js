@@ -14,6 +14,7 @@ export const ROLES = {
   SECURITY: "security",
   RESOURCE: "resource",
   FINANCE: "finance",
+  VENDOR: "vendor",
 };
 
 // All valid roles for validation
@@ -62,6 +63,13 @@ export const EVENT_TYPES = {
   SEMINAR: "seminar",
   STANDARD: "standard",
 };
+
+export const CLUB_TYPES = {
+  DEPARTMENTAL: "departmental",
+  NON_DEPARTMENTAL: "non_departmental",
+};
+
+export const ALL_CLUB_TYPES = Object.values(CLUB_TYPES);
 
 export const TASK_STATUS = {
   PENDING: "pending",
@@ -127,6 +135,17 @@ export function getRequiredStages(event) {
   ).map((s) => s.stage);
 }
 
+// Get approval stages for sub-events (skip faculty coordinator, go directly to Dean)
+export function getSubEventRequiredStages(event) {
+  return APPROVAL_CHAIN.filter(
+    (stage) => {
+      // Skip faculty_coordinator for sub-events
+      if (stage.stage === "faculty_coordinator") return false;
+      return stage.required || (stage.condition && stage.condition(event));
+    }
+  ).map((s) => s.stage);
+}
+
 // Human-readable labels
 export const STATUS_LABELS = {
   [EVENT_STATUS.DRAFT]: "Draft",
@@ -139,4 +158,71 @@ export const STATUS_LABELS = {
   [EVENT_STATUS.IN_PROGRESS]: "In Progress",
   [EVENT_STATUS.COMPLETED]: "Completed",
   [EVENT_STATUS.ARCHIVED]: "Archived",
+};
+
+// ─────────────────────────────────────────────
+// Vendor Management Constants
+// ─────────────────────────────────────────────
+
+export const VENDOR_CATEGORIES = [
+  "catering",
+  "printing",
+  "decoration",
+  "sound_lighting",
+  "transport",
+  "photography",
+  "stationery",
+  "furniture",
+  "it_equipment",
+  "other",
+];
+
+export const VENDOR_CATEGORY_LABELS = {
+  catering: "Catering & Food",
+  printing: "Printing & Banners",
+  decoration: "Decoration & Setup",
+  sound_lighting: "Sound & Lighting",
+  transport: "Transport & Logistics",
+  photography: "Photography & Videography",
+  stationery: "Stationery & Supplies",
+  furniture: "Furniture & Equipment Rental",
+  it_equipment: "IT Equipment",
+  other: "Other Services",
+};
+
+export const QUOTATION_REQUEST_STATUS = {
+  OPEN: "open",
+  CLOSED: "closed",
+  AWARDED: "awarded",
+};
+
+export const QUOTATION_STATUS = {
+  SUBMITTED: "submitted",
+  SUPERSEDED: "superseded",
+  ACCEPTED: "accepted",
+  REJECTED: "rejected",
+  WITHDRAWN: "withdrawn",
+};
+
+export const PAYMENT_STATUS = {
+  PENDING: "pending",
+  PROCESSING: "processing",
+  PAID: "paid",
+  REJECTED: "rejected",
+};
+
+export const VENDOR_DOC_TYPES = [
+  "gst_certificate",
+  "pan_card",
+  "registration",
+  "portfolio",
+  "other",
+];
+
+export const VENDOR_DOC_TYPE_LABELS = {
+  gst_certificate: "GST Certificate",
+  pan_card: "PAN Card",
+  registration: "Registration Document",
+  portfolio: "Portfolio / Catalog",
+  other: "Other Document",
 };
