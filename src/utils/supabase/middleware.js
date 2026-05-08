@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
-export const updateSession = async (request) => {
+export const createClient = (request) => {
   // Create an unmodified response
   let supabaseResponse = NextResponse.next({
     request: {
@@ -32,9 +32,6 @@ export const updateSession = async (request) => {
       },
     }
   );
-
-  // refreshing the auth token
-  await supabase.auth.getUser();
 
   return supabaseResponse;
 };
