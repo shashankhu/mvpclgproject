@@ -1,11 +1,13 @@
 import { createClient } from '@/utils/supabase/server';
-import { cookies } from 'next/headers';
 
 export default async function Page() {
-  const cookieStore = await cookies();
-  const supabase = createClient(cookieStore);
+  const supabase = await createClient();
 
-  const { data: todos } = await supabase.from('todos').select();
+  const { data: todos, error } = await supabase.from('todos').select();
+
+  if (error) {
+    return <div style={{ padding: '2rem' }}>Error loading todos: {error.message}</div>;
+  }
 
   return (
     <div style={{ padding: '2rem' }}>
@@ -16,7 +18,7 @@ export default async function Page() {
         ))}
       </ul>
       {(!todos || todos.length === 0) && (
-        <p>No todos found. Make sure you have a 'todos' table with a 'name' column in your new Supabase project.</p>
+        <p>No todos found. Make sure you have a 'todos' table in your Supabase project.</p>
       )}
     </div>
   );
