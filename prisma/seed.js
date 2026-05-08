@@ -4,10 +4,12 @@
 // ─────────────────────────────────────────────
 
 import { config } from "dotenv";
-import { PrismaClient } from "@prisma/client";
+import prismaPkg from "@prisma/client";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { hashPassword } from "../src/lib/auth.js";
+
+const { PrismaClient } = prismaPkg;
 
 // Load environment variables
 config({ path: ".env.local" });
