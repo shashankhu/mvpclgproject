@@ -2,13 +2,12 @@
 // Diganta — Singleton Prisma Client
 // ─────────────────────────────────────────────
 
-import { PrismaClient } from "@prisma/client";
+import prismaPkg from "@prisma/client";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
 
+const { PrismaClient } = prismaPkg;
 const globalForPrisma = globalThis;
-
-let prisma;
 
 if (!globalForPrisma.prismaClientV2) {
   const connectionString = process.env.DATABASE_URL;
@@ -26,15 +25,5 @@ if (!globalForPrisma.prismaClientV2) {
   });
 }
 
-prisma = globalForPrisma.prismaClientV2;
-export default prisma;
-const adapter = new PrismaPg(pool);
-
-globalForPrisma.prisma = new PrismaClient({
-  adapter,
-  log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
-});
-}
-
-export const prisma = globalForPrisma.prisma;
+const prisma = globalForPrisma.prismaClientV2;
 export default prisma;
